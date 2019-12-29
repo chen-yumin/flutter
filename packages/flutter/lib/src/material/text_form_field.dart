@@ -104,6 +104,7 @@ class TextFormField extends FormField<String> {
     SmartQuotesType smartQuotesType,
     bool enableSuggestions = true,
     bool autovalidate = false,
+    ErrorStateMatcher<FormFieldState<String>> errorStateMatcher,
     bool maxLengthEnforced = true,
     int maxLines = 1,
     int minLines,
@@ -154,6 +155,7 @@ class TextFormField extends FormField<String> {
     onSaved: onSaved,
     validator: validator,
     autovalidate: autovalidate,
+    errorStateMatcher: errorStateMatcher,
     enabled: enabled,
     builder: (FormFieldState<String> field) {
       final _TextFormFieldState state = field as _TextFormFieldState;

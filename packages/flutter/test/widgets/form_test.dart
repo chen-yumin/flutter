@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 void main() {
   testWidgets('onSaved callback is called', (WidgetTester tester) async {
     final GlobalKey<FormState> formKey = GlobalKey<FormState>();
+    final GlobalKey<FormFieldState<String>> formFieldKey = GlobalKey<FormFieldState<String>>();
     String fieldValue;
 
     Widget builder() {
@@ -21,6 +22,7 @@ void main() {
                 child: Form(
                   key: formKey,
                   child: TextFormField(
+                    key: formFieldKey,
                     onSaved: (String value) { fieldValue = value; },
                   ),
                 ),
@@ -34,12 +36,20 @@ void main() {
     await tester.pumpWidget(builder());
 
     expect(fieldValue, isNull);
+    expect(formFieldKey.currentState.touched, false);
+    expect(formFieldKey.currentState.saved, false);
+    expect(formKey.currentState.touched, false);
+    expect(formKey.currentState.saved, false);
 
     Future<void> checkText(String testValue) async {
       await tester.enterText(find.byType(TextFormField), testValue);
       formKey.currentState.save();
       // Pumping is unnecessary because callback happens regardless of frames.
       expect(fieldValue, equals(testValue));
+      expect(formFieldKey.currentState.touched, true);
+      expect(formFieldKey.currentState.saved, true);
+      expect(formKey.currentState.touched, true);
+      expect(formKey.currentState.saved, true);
     }
 
     await checkText('Test');
@@ -47,6 +57,7 @@ void main() {
   });
 
   testWidgets('onChanged callback is called', (WidgetTester tester) async {
+    final GlobalKey<FormState> formKey = GlobalKey<FormState>();
     String fieldValue;
 
     Widget builder() {
@@ -58,6 +69,7 @@ void main() {
             child: Center(
               child: Material(
                 child: Form(
+                  key: formKey,
                   child: TextField(
                     onChanged: (String value) { fieldValue = value; },
                   ),
@@ -72,11 +84,15 @@ void main() {
     await tester.pumpWidget(builder());
 
     expect(fieldValue, isNull);
+    expect(formKey.currentState.touched, false);
+    expect(formKey.currentState.saved, false);
 
     Future<void> checkText(String testValue) async {
-      await tester.enterText(find.byType(TextField), testValue);
+      await tester.enterText(find.byType(TextFormField), testValue);
       // pump'ing is unnecessary because callback happens regardless of frames
       expect(fieldValue, equals(testValue));
+      expect(formKey.currentState.touched, true);
+      expect(formKey.currentState.saved, false);
     }
 
     await checkText('Test');
@@ -131,6 +147,63 @@ void main() {
       await tester.pump();
 
       expect(find.text(errorText(testValue)), findsOneWidget);
+    }
+
+    await checkErrorText('Test');
+    await checkErrorText('');
+  });
+
+  testWidgets('Validator sets the error text when autovalidate with errorStateMatcher', (WidgetTester tester) async {
+    final GlobalKey<FormFieldState<String>> formFieldKey = GlobalKey<FormFieldState<String>>();
+    String errorText(String value) => value + '/error';
+
+    Widget builder(bool autovalidate, ErrorStateMatcher<String> errorStateMatcher) {
+      return MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(devicePixelRatio: 1.0),
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: Center(
+              child: Material(
+                child: Form(
+                  child: TextFormField(
+                    key: formFieldKey,
+                    autovalidate: autovalidate,
+                    errorStateMatcher: errorStateMatcher,
+                    validator: errorText,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    await tester.pumpWidget(builder(false, null));
+
+    Future<void> checkErrorText(String testValue) async {
+      // Autovalidate without errorStateMatcher. It should validate immediately.
+      formFieldKey.currentState.reset();
+      await tester.pumpWidget(builder(true, null));
+      await tester.enterText(find.byType(TextFormField), testValue);
+      await tester.pump();
+      expect(find.text(errorText(testValue)), findsOneWidget);
+
+      // Autovalidate with errorStateMatcher. It should only validate when 
+      // errorStateMatcher is true, indicating to show error state.
+      formFieldKey.currentState.reset();
+      await tester.pumpWidget(builder(true, (_) => true));
+      await tester.enterText(find.byType(TextFormField), testValue);
+      await tester.pump();
+      expect(find.text(errorText(testValue)), findsOneWidget);
+
+      // When errorStateMatcher returns false, no error is shown.
+      formFieldKey.currentState.reset();
+      await tester.pumpWidget(builder(true, (_) => false));
+      await tester.enterText(find.byType(TextFormField), testValue);
+      await tester.pump();
+      expect(find.text(errorText(testValue)), findsNothing);
     }
 
     await checkErrorText('Test');
@@ -310,17 +383,22 @@ void main() {
     final EditableTextState editableText = tester.state(find.byType(EditableText));
 
     // overwrite initial value.
-    controller.text = 'Xyzzy';
+    await tester.enterText(find.byType(TextFormField), 'Xyzzy');
+    inputKey.currentState.save();
     await tester.idle();
     expect(editableText.widget.controller.text, equals('Xyzzy'));
     expect(inputKey.currentState.value, equals('Xyzzy'));
+    expect(inputKey.currentState.touched, true);
+    expect(inputKey.currentState.saved, true);
     expect(controller.text, equals('Xyzzy'));
 
     // verify value resets to initialValue on reset.
     formKey.currentState.reset();
     await tester.idle();
-    expect(inputKey.currentState.value, equals('Plover'));
     expect(editableText.widget.controller.text, equals('Plover'));
+    expect(inputKey.currentState.value, equals('Plover'));
+    expect(inputKey.currentState.touched, false);
+    expect(inputKey.currentState.saved, false);
     expect(controller.text, equals('Plover'));
   });
 

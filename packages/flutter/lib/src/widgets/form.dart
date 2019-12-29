@@ -77,6 +77,7 @@ class Form extends StatefulWidget {
     Key key,
     @required this.child,
     this.autovalidate = false,
+    this.errorStateMatcher,
     this.onWillPop,
     this.onChanged,
   }) : assert(child != null),
@@ -103,9 +104,15 @@ class Form extends StatefulWidget {
   final Widget child;
 
   /// If true, form fields will validate and update their error text
-  /// immediately after every change. Otherwise, you must call
-  /// [FormState.validate] to validate.
+  /// automatically as long as the [errorStateMatcher] returns true, or
+  /// immediately after every change if [errorStateMatcher] is null. 
+  /// Otherwise, you must call [FormState.validate] to validate.
   final bool autovalidate;
+
+  /// An optional method that returns a boolean indicating whether errors
+  /// should be shown. Only useful when [autovalidate] is true. Manually
+  /// calling [FormState.validate] will not be affected by this.
+  final ErrorStateMatcher<FormState> errorStateMatcher;
 
   /// Enables the form to veto attempts by the user to dismiss the [ModalRoute]
   /// that contains the form.
@@ -139,6 +146,18 @@ class FormState extends State<Form> {
   int _generation = 0;
   final Set<FormFieldState<dynamic>> _fields = <FormFieldState<dynamic>>{};
 
+  /// True if any [FormField] that is a descendant of this [Form] has been
+  /// touched by the user since the field's initialization or reset. 
+  /// 
+  /// Manually setting the [value] does not trigger an update on [touched].
+  bool get touched =>
+      _fields.any((FormFieldState<dynamic> field) => field.touched);
+
+  /// True if any [FormField] that is a descendant of this [Form] has been
+  /// saved since the field's initialization or reset.
+  bool get saved =>
+      _fields.any((FormFieldState<dynamic> field) => field.saved);
+
   // Called when a form field has changed. This will cause all form fields
   // to rebuild, useful if form fields have interdependencies.
   void _fieldDidChange() {
@@ -163,8 +182,10 @@ class FormState extends State<Form> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.autovalidate)
+    if (widget.autovalidate &&
+        (widget.errorStateMatcher == null || widget.errorStateMatcher(this))) {
       _validate();
+    }
     return WillPopScope(
       onWillPop: widget.onWillPop,
       child: _FormScope(
@@ -234,6 +255,11 @@ class _FormScope extends InheritedWidget {
   bool updateShouldNotify(_FormScope old) => _generation != old._generation;
 }
 
+/// Signature for determining whether errors should be shown on a form field.
+///
+/// Used by [Form.errorStateMatcher] and [FormField.errorStateMatcher].
+typedef ErrorStateMatcher<T> = bool Function(T state);
+
 /// Signature for validating a form field.
 ///
 /// Returns an error string to display if the input is invalid, or null
@@ -284,6 +310,7 @@ class FormField<T> extends StatefulWidget {
     this.validator,
     this.initialValue,
     this.autovalidate = false,
+    this.errorStateMatcher,
     this.enabled = true,
   }) : assert(builder != null),
        super(key: key);
@@ -315,11 +342,20 @@ class FormField<T> extends StatefulWidget {
   /// An optional value to initialize the form field to, or null otherwise.
   final T initialValue;
 
-  /// If true, this form field will validate and update its error text
-  /// immediately after every change. Otherwise, you must call
-  /// [FormFieldState.validate] to validate. If part of a [Form] that
-  /// auto-validates, this value will be ignored.
+  /// If true, form fields will validate and update their error text
+  /// automatically as long as the [errorStateMatcher] returns true, or
+  /// immediately after every change if [errorStateMatcher] is null. 
+  /// Otherwise, you must call [FormFieldState.validate] to validate.
+  /// 
+  /// If part of a [Form] that auto-validates, this value will be ignored.
   final bool autovalidate;
+
+  /// An optional method provided with [FormErrorState] that returns a boolean
+  /// indicating whether errors should be shown. Only useful when the 
+  /// [autovalidate] is true. 
+  /// 
+  /// Manually calling [FormFieldState.validate] will not be affected by this.
+  final ErrorStateMatcher<FormFieldState<T>> errorStateMatcher;
 
   /// Whether the form is able to receive user input.
   ///
@@ -337,6 +373,8 @@ class FormField<T> extends StatefulWidget {
 class FormFieldState<T> extends State<FormField<T>> {
   T _value;
   String _errorText;
+  bool _touched;
+  bool _saved;
 
   /// The current value of the form field.
   T get value => _value;
@@ -349,8 +387,21 @@ class FormFieldState<T> extends State<FormField<T>> {
   /// True if this field has any validation errors.
   bool get hasError => _errorText != null;
 
+  /// True if this field has been touched by the user and [didChange] has been
+  /// called since the field's initialization or reset. 
+  /// 
+  /// Manually setting the [value] does not trigger an update on [touched].
+  bool get touched => _touched;
+
+  /// True if [FormField.save] has ever been called since its initialization or
+  /// reset.
+  bool get saved => _saved;
+
   /// Calls the [FormField]'s onSaved method with the current value.
   void save() {
+    setState(() {
+      _saved = true;
+    });
     if (widget.onSaved != null)
       widget.onSaved(value);
   }
@@ -360,6 +411,8 @@ class FormFieldState<T> extends State<FormField<T>> {
     setState(() {
       _value = widget.initialValue;
       _errorText = null;
+      _touched = false;
+      _saved = false;
     });
   }
 
@@ -385,6 +438,7 @@ class FormFieldState<T> extends State<FormField<T>> {
   void didChange(T value) {
     setState(() {
       _value = value;
+      _touched = true;
     });
     Form.of(context)?._fieldDidChange();
   }
@@ -405,6 +459,8 @@ class FormFieldState<T> extends State<FormField<T>> {
   void initState() {
     super.initState();
     _value = widget.initialValue;
+    _touched = false;
+    _saved = false;
   }
 
   @override
@@ -415,9 +471,12 @@ class FormFieldState<T> extends State<FormField<T>> {
 
   @override
   Widget build(BuildContext context) {
-    // Only autovalidate if the widget is also enabled
-    if (widget.autovalidate && widget.enabled)
+    // Only autovalidate if the widget is enabled and if errorStateMatcher
+    // indicates errors should be shown.
+    if (widget.autovalidate && widget.enabled &&
+        (widget.errorStateMatcher == null || widget.errorStateMatcher(this))) {
       _validate();
+    }
     Form.of(context)?._register(this);
     return widget.builder(this);
   }
