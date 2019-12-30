@@ -104,14 +104,30 @@ class Form extends StatefulWidget {
   final Widget child;
 
   /// If true, form fields will validate and update their error text
-  /// automatically as long as the [errorStateMatcher] returns true, or
-  /// immediately after every change if [errorStateMatcher] is null. 
-  /// Otherwise, you must call [FormState.validate] to validate.
+  /// immediately after every change. Otherwise, you must call
+  /// [FormState.validate] to validate.
   final bool autovalidate;
 
-  /// An optional method that returns a boolean indicating whether errors
-  /// should be shown. Only useful when [autovalidate] is true. Manually
-  /// calling [FormState.validate] will not be affected by this.
+  /// An optional callback method that defines whether the error texts from
+  /// validation should be shown. The method should return a boolean, which
+  /// if true will indicate to show the errors, and otherwise hide them.
+  /// 
+  /// [FormState] is passed as a parameter to this callback method. You can use
+  /// attributes like [FormState.touched], [FormState.saved], etc. to define
+  /// this callback. For example:
+  /// 
+  /// ```dart
+  /// // show error only after the user has saved the form
+  /// errorStateMatcher: (state) => state.saved
+  /// ```
+  /// 
+  /// This condition applies to all [FormField]s that are a descendant of this
+  /// [Form]. If any child [FormField] has its own [FormField.errorStateMatcher],
+  /// the conditions will be combined using logical conjunction (AND), i.e. both
+  /// need to be true to show the error texts.
+  /// 
+  /// If this is null, no confining condition will apply, so any error will be
+  /// shown immediately. This is an equivelant of `(_) => true`.
   final ErrorStateMatcher<FormState> errorStateMatcher;
 
   /// Enables the form to veto attempts by the user to dismiss the [ModalRoute]
@@ -182,10 +198,8 @@ class FormState extends State<Form> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.autovalidate &&
-        (widget.errorStateMatcher == null || widget.errorStateMatcher(this))) {
+    if (widget.autovalidate)
       _validate();
-    }
     return WillPopScope(
       onWillPop: widget.onWillPop,
       child: _FormScope(
@@ -342,12 +356,10 @@ class FormField<T> extends StatefulWidget {
   /// An optional value to initialize the form field to, or null otherwise.
   final T initialValue;
 
-  /// If true, form fields will validate and update their error text
-  /// automatically as long as the [errorStateMatcher] returns true, or
-  /// immediately after every change if [errorStateMatcher] is null. 
-  /// Otherwise, you must call [FormFieldState.validate] to validate.
-  /// 
-  /// If part of a [Form] that auto-validates, this value will be ignored.
+  /// If true, this form field will validate and update its error text
+  /// immediately after every change. Otherwise, you must call
+  /// [FormFieldState.validate] to validate. If part of a [Form] that
+  /// auto-validates, this value will be ignored.
   final bool autovalidate;
 
   /// An optional method provided with [FormErrorState] that returns a boolean
@@ -471,12 +483,9 @@ class FormFieldState<T> extends State<FormField<T>> {
 
   @override
   Widget build(BuildContext context) {
-    // Only autovalidate if the widget is enabled and if errorStateMatcher
-    // indicates errors should be shown.
-    if (widget.autovalidate && widget.enabled &&
-        (widget.errorStateMatcher == null || widget.errorStateMatcher(this))) {
+    // Only autovalidate if the widget is also enabled
+    if (widget.autovalidate && widget.enabled)
       _validate();
-    }
     Form.of(context)?._register(this);
     return widget.builder(this);
   }
